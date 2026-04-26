@@ -1,0 +1,7 @@
+logs/*.log
+logs/*.log.*
+.venv
+.env
+skills-lock.json
+.agents
+sqlite.db
