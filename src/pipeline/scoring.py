@@ -178,17 +178,17 @@ def score_offer(
             f"Excluded keywords detected: {', '.join(matched_excluded_keywords)}"
         )
 
-    if not remote_policy_is_compatible(job_config.remote_policy, offer.remote_policy):
+    if not remote_policy_is_compatible(job_config.search.remote_policy, offer.remote_policy):
         blocked_reasons.append("Remote policy mismatch")
 
-    location_is_compatible = location_matches(job_config.target_locations, offer.location)
+    location_is_compatible = location_matches(job_config.search.target_locations, offer.location)
     if not location_is_compatible and normalize_remote_policy(offer.remote_policy) not in {
         "remote",
         "flexible",
     }:
         blocked_reasons.append("Location mismatch")
 
-    if not contract_type_is_compatible(job_config.contract_types, offer.employment_type):
+    if not contract_type_is_compatible(job_config.search.contract_types, offer.employment_type):
         blocked_reasons.append("Contract type mismatch")
 
     title_score_ratio = max(
@@ -216,11 +216,11 @@ def score_offer(
         gaps.append("Required skills are not clearly present")
 
     if location_is_compatible and remote_policy_is_compatible(
-        job_config.remote_policy, offer.remote_policy
+        job_config.search.remote_policy, offer.remote_policy
     ):
         location_remote_score = 20
         strengths.append("Location and remote policy are compatible")
-    elif remote_policy_is_compatible(job_config.remote_policy, offer.remote_policy):
+    elif remote_policy_is_compatible(job_config.search.remote_policy, offer.remote_policy):
         location_remote_score = 10
     else:
         location_remote_score = 0
@@ -228,20 +228,20 @@ def score_offer(
     seniority_text = " ".join(
         part for part in [offer.title, offer.description, offer.employment_type] if part
     )
-    if normalize_text(job_config.seniority) in normalize_text(seniority_text):
+    if normalize_text(job_config.search.seniority) in normalize_text(seniority_text):
         seniority_score = 10
         strengths.append("Seniority appears aligned")
-    elif not job_config.seniority:
+    elif not job_config.search.seniority:
         seniority_score = 10
     else:
         seniority_score = 4
         gaps.append("Seniority is not explicit")
 
-    if contract_type_is_compatible(job_config.contract_types, offer.employment_type):
+    if contract_type_is_compatible(job_config.search.contract_types, offer.employment_type):
         contract_score = 10
     else:
         contract_score = 0
-        if job_config.contract_types:
+        if job_config.search.contract_types:
             gaps.append("Contract type is not in target preferences")
 
     if candidate_profile.bonus_keywords:

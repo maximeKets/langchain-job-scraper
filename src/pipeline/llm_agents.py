@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
 
 from langchain.agents import create_agent
@@ -33,6 +34,10 @@ class DigestSummaryOutput(BaseModel):
     subject: str
     intro: str
     highlights: list[str] = Field(default_factory=list)
+
+
+MAX_LEVER_DISCOVERY_QUERIES = 12
+MAX_LEVER_DISCOVERY_TERMS = 4
 
 
 def can_use_llm() -> bool:
@@ -78,8 +83,9 @@ def get_lever_discovery_query_agent():
         tools=[],
         system_prompt=(
             "You create Google search queries for discovering public Lever job board URLs. "
-            "Return only high-signal queries that include site:jobs.lever.co and combine target titles, "
-            "required skills, bonus skills, remote/location preferences, and AI/backend/data context. "
+            "Return broad, short, high-recall queries that include site:jobs.lever.co. "
+            "Each query must have at most one target title plus at most two extra terms. "
+            "Do not include negative filters, long keyword lists, every skill, or every location. "
             "Do not invent company slugs; generate search queries only."
         ),
         response_format=LeverDiscoveryQueryEnvelope,
@@ -121,14 +127,14 @@ def merge_candidate_profile(
     merged = parsed_profile.model_copy(
         update={
             "profile_id": job_config.profile_id,
-            "target_titles": job_config.target_titles or parsed_profile.target_titles,
-            "target_locations": job_config.target_locations or parsed_profile.target_locations,
-            "remote_policy": job_config.remote_policy or parsed_profile.remote_policy,
-            "contract_types": job_config.contract_types or parsed_profile.contract_types,
-            "seniority": job_config.seniority or parsed_profile.seniority,
-            "required_keywords": job_config.required_keywords or parsed_profile.required_keywords,
-            "bonus_keywords": job_config.bonus_keywords or parsed_profile.bonus_keywords,
-            "excluded_keywords": job_config.excluded_keywords or parsed_profile.excluded_keywords,
+            "target_titles": job_config.search.target_titles or parsed_profile.target_titles,
+            "target_locations": job_config.search.target_locations or parsed_profile.target_locations,
+            "remote_policy": job_config.search.remote_policy or parsed_profile.remote_policy,
+            "contract_types": job_config.search.contract_types or parsed_profile.contract_types,
+            "seniority": job_config.search.seniority or parsed_profile.seniority,
+            "required_keywords": job_config.search.required_keywords or parsed_profile.required_keywords,
+            "bonus_keywords": job_config.search.bonus_keywords or parsed_profile.bonus_keywords,
+            "excluded_keywords": job_config.search.excluded_keywords or parsed_profile.excluded_keywords,
             "raw_markdown": raw_markdown,
         }
     )
@@ -147,15 +153,15 @@ def fallback_parse_candidate_profile(
         profile_id=job_config.profile_id,
         candidate_summary=summary or "Candidate profile imported from markdown CV.",
         experience_summary=summary or "Experience extracted from markdown profile.",
-        target_titles=job_config.target_titles,
-        target_locations=job_config.target_locations,
-        remote_policy=job_config.remote_policy,
-        contract_types=job_config.contract_types,
-        seniority=job_config.seniority,
-        required_keywords=job_config.required_keywords,
-        bonus_keywords=job_config.bonus_keywords,
-        excluded_keywords=job_config.excluded_keywords,
-        core_skills=job_config.required_keywords + job_config.bonus_keywords[:3],
+        target_titles=job_config.search.target_titles,
+        target_locations=job_config.search.target_locations,
+        remote_policy=job_config.search.remote_policy,
+        contract_types=job_config.search.contract_types,
+        seniority=job_config.search.seniority,
+        required_keywords=job_config.search.required_keywords,
+        bonus_keywords=job_config.search.bonus_keywords,
+        excluded_keywords=job_config.search.excluded_keywords,
+        core_skills=job_config.search.required_keywords + job_config.search.bonus_keywords[:3],
         preferred_domains=["data", "ai", "ml", "software"],
         raw_markdown=raw_markdown,
     )
@@ -199,7 +205,7 @@ def fallback_build_search_plan(
     title_candidates = candidate_profile.target_titles or ["Data Engineer"]
     required_keywords = candidate_profile.required_keywords[:3]
 
-    for source in job_config.target_sources:
+    for source in job_config.sources.enabled:
         for title in title_candidates:
             query_parts = [title]
             query_parts.extend(required_keywords)
@@ -235,7 +241,7 @@ def build_search_plan_with_agent(
         "Candidate profile:\n"
         f"{candidate_profile.model_dump_json(indent=2)}\n\n"
         "Target sources:\n"
-        f"{json.dumps(job_config.target_sources, ensure_ascii=True)}"
+        f"{json.dumps(job_config.sources.enabled, ensure_ascii=True)}"
     )
     try:
         logger.info("Invoking LangChain search plan agent")
@@ -247,7 +253,7 @@ def build_search_plan_with_agent(
             intents = [
                 intent
                 for intent in structured.search_intents
-                if intent.source in job_config.target_sources
+                if intent.source in job_config.sources.enabled
             ]
             logger.info("Search plan agent returned intents=%s", len(intents))
             return intents
@@ -257,15 +263,52 @@ def build_search_plan_with_agent(
     return fallback
 
 
-def _dedupe_queries(queries: list[str], limit: int = 30) -> list[str]:
+def _clean_query_fragment(fragment: str) -> str:
+    cleaned = "".join(char for char in fragment if char.isprintable()).strip()
+    return cleaned.strip("'\"")
+
+
+def _quote_query_fragment(fragment: str) -> str:
+    if not fragment:
+        return fragment
+    if " " in fragment:
+        return f'"{fragment}"'
+    return fragment
+
+
+def _simplify_lever_discovery_query(query: str) -> str | None:
+    fragments = re.findall(r'"[^"]+"|\S+', query)
+    terms: list[str] = []
+    seen: set[str] = set()
+    for fragment in fragments:
+        if fragment.startswith("site:"):
+            continue
+        if fragment.startswith("-"):
+            continue
+
+        cleaned = _clean_query_fragment(fragment)
+        if not cleaned or cleaned.startswith("-"):
+            continue
+        key = cleaned.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        terms.append(cleaned)
+        if len(terms) >= MAX_LEVER_DISCOVERY_TERMS:
+            break
+
+    if not terms:
+        return None
+    return " ".join(["site:jobs.lever.co", *[_quote_query_fragment(term) for term in terms]])
+
+
+def _dedupe_queries(queries: list[str], limit: int = MAX_LEVER_DISCOVERY_QUERIES) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
     for query in queries:
-        normalized = " ".join(query.split()).strip()
+        normalized = _simplify_lever_discovery_query(query)
         if not normalized:
             continue
-        if "site:jobs.lever.co" not in normalized:
-            normalized = f"site:jobs.lever.co {normalized}"
         key = normalized.casefold()
         if key in seen:
             continue
@@ -280,28 +323,24 @@ def fallback_build_lever_discovery_queries(
     candidate_profile: CandidateProfile,
     job_config: JobSearchConfig,
 ) -> list[str]:
-    titles = candidate_profile.target_titles or job_config.target_titles or ["AI Engineer"]
-    required_keywords = (candidate_profile.required_keywords or job_config.required_keywords)[:3]
-    bonus_keywords = (candidate_profile.bonus_keywords or job_config.bonus_keywords)[:4]
-    locations = candidate_profile.target_locations or job_config.target_locations
-
-    context_terms = [
-        " ".join(required_keywords),
-        " ".join(bonus_keywords[:2]),
-        "Remote" if candidate_profile.remote_policy != "onsite" else "",
-        locations[0] if locations else "",
+    titles = candidate_profile.target_titles or job_config.search.target_titles or ["AI Engineer"]
+    required_keywords = candidate_profile.required_keywords or job_config.search.required_keywords
+    bonus_keywords = candidate_profile.bonus_keywords or job_config.search.bonus_keywords
+    priority_keywords = [
+        keyword
+        for keyword in ["python", "ai", "llm", "rag", "fastapi", "langchain"]
+        if keyword in {term.casefold() for term in required_keywords + bonus_keywords}
     ]
+    if not priority_keywords:
+        priority_keywords = (required_keywords + bonus_keywords)[:3]
+
     queries: list[str] = []
     for title in titles:
-        query_parts = ["site:jobs.lever.co", f'"{title}"']
-        query_parts.extend(f'"{term}"' for term in context_terms if term)
-        queries.append(" ".join(query_parts))
-
-        skill_terms = [term for term in required_keywords + bonus_keywords if term][:4]
-        if skill_terms:
-            queries.append(
-                " ".join(["site:jobs.lever.co", f'"{title}"', *[f'"{term}"' for term in skill_terms]])
-            )
+        queries.append(f'site:jobs.lever.co "{title}"')
+        if priority_keywords:
+            queries.append(f'site:jobs.lever.co "{title}" {priority_keywords[0]}')
+        if candidate_profile.remote_policy != "onsite":
+            queries.append(f'site:jobs.lever.co "{title}" remote')
 
     return _dedupe_queries(queries)
 
@@ -320,7 +359,8 @@ def build_lever_discovery_queries_with_agent(
         f"{candidate_profile.model_dump_json(indent=2)}\n\n"
         "Job search config:\n"
         f"{json.dumps(job_config.model_dump(), ensure_ascii=True, indent=2)}\n\n"
-        "Generate 12-20 Google queries to discover relevant Lever company boards."
+        "Generate 8-12 broad Google queries to discover relevant Lever company boards. "
+        "Keep each query short: site:jobs.lever.co plus a title and at most two extra terms."
     )
     try:
         logger.info("Invoking LangChain Lever discovery query agent")

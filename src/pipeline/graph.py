@@ -62,9 +62,9 @@ def load_config(state: PipelineState) -> dict[str, Any]:
     logger.info(
         "Config loaded for profile=%s sources=%s titles=%s locations=%s",
         loaded.settings.profile_id,
-        ",".join(loaded.settings.target_sources),
-        len(loaded.settings.target_titles),
-        ",".join(loaded.settings.target_locations),
+        ",".join(loaded.settings.sources.enabled),
+        len(loaded.settings.search.target_titles),
+        ",".join(loaded.settings.search.target_locations),
     )
     return {
         "job_search_config": loaded.settings,
@@ -101,7 +101,7 @@ def build_search_plan_agent(state: PipelineState) -> dict[str, Any]:
 
 def discover_lever_sources_agent(state: PipelineState) -> dict[str, Any]:
     job_config = state["job_search_config"]
-    if "lever" not in job_config.target_sources:
+    if "lever" not in job_config.sources.enabled:
         logger.info("Lever source discovery skipped: lever is not enabled")
         return {"lever_discovery_queries": [], "discovered_lever_company_tokens": []}
 
@@ -119,7 +119,7 @@ def discover_lever_sources_agent(state: PipelineState) -> dict[str, Any]:
 
 
 def dispatch_scrapers(state: PipelineState) -> list[Send]:
-    enabled_sources = set(state["job_search_config"].target_sources)
+    enabled_sources = set(state["job_search_config"].sources.enabled)
     scrapers = [
         Send(
             "wttj_scraper",
@@ -236,10 +236,10 @@ def persist_offers(state: PipelineState) -> dict[str, Any]:
 def build_digest_agent(state: PipelineState) -> dict[str, Any]:
     logger.info(
         "Building digest: min_relevance_score=%s limit=all",
-        state["job_search_config"].min_relevance_score,
+        state["job_search_config"].digest.min_relevance_score,
     )
     pending_offers = get_pending_digest_offers(
-        min_relevance_score=state["job_search_config"].min_relevance_score,
+        min_relevance_score=state["job_search_config"].digest.min_relevance_score,
     )
 
     digest_entries = [
@@ -284,11 +284,11 @@ def send_email(state: PipelineState) -> dict[str, Any]:
     offer_ids = [entry.offer_id for entry in digest_entries]
     logger.info(
         "Sending digest email: recipient=%s offers=%s",
-        state["job_search_config"].recipient_email,
+        state["job_search_config"].digest.recipient_email,
         len(offer_ids),
     )
     delivered = send_digest_email(
-        recipient_email=state["job_search_config"].recipient_email,
+        recipient_email=state["job_search_config"].digest.recipient_email,
         subject=state["digest_subject"],
         html_body=state["digest_html"],
     )
@@ -305,7 +305,7 @@ def send_email(state: PipelineState) -> dict[str, Any]:
         "sent_offer_ids": offer_ids,
         "run_summary": (
             f"Sent {len(offer_ids)} offers to "
-            f"{state['job_search_config'].recipient_email}."
+            f"{state['job_search_config'].digest.recipient_email}."
         ),
     }
 

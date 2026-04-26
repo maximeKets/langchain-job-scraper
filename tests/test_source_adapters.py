@@ -90,8 +90,8 @@ def test_fetch_lever_jobs_uses_discovered_company_tokens(monkeypatch, temp_db: s
     job_config = JobSearchConfig(
         profile_id="source-test",
         profile_markdown_path="candidate.md",
-        recipient_email="test@example.com",
-        target_sources=["lever"],
+        sources={"enabled": ["lever"]},
+        digest={"recipient_email": "test@example.com"},
     )
 
     offers = fetch_lever_jobs(job_config, [build_search_intent("lever", "AI Engineer")])

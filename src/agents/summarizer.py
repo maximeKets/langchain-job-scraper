@@ -26,7 +26,7 @@ def get_unread_jobs() -> str:
         A JSON string containing the relevant pending jobs.
     """
     loaded_config = load_job_search_config(settings.JOB_SEARCH_CONFIG_PATH)
-    min_score = loaded_config.settings.min_relevance_score
+    min_score = loaded_config.settings.digest.min_relevance_score
     offers = get_pending_digest_offers(min_relevance_score=min_score)
 
     if not offers:
@@ -63,7 +63,7 @@ def get_unread_jobs() -> str:
     return json.dumps(
         {
             "min_relevance_score": min_score,
-            "recipient_email": loaded_config.settings.recipient_email,
+            "recipient_email": loaded_config.settings.digest.recipient_email,
             "jobs": jobs,
         },
         ensure_ascii=True,

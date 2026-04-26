@@ -23,6 +23,44 @@ def disable_lever_discovery(monkeypatch) -> None:
     )
 
 
+def write_job_search_config(
+    config_path: Path,
+    *,
+    target_locations: list[str],
+    target_titles: list[str],
+    seniority: str,
+    required_keywords: list[str],
+    bonus_keywords: list[str],
+    target_sources: list[str],
+) -> None:
+    lines = [
+        "profile_id: integration-user",
+        "profile_markdown_path: candidate.md",
+        "search:",
+        "  target_locations:",
+        *[f"    - {location}" for location in target_locations],
+        "  remote_policy: flexible",
+        "  target_titles:",
+        *[f"    - {title}" for title in target_titles],
+        "  contract_types:",
+        "    - full_time",
+        f"  seniority: {seniority}",
+        "  required_keywords:",
+        *[f"    - {keyword}" for keyword in required_keywords],
+        "  bonus_keywords:",
+        *[f"    - {keyword}" for keyword in bonus_keywords],
+        "  excluded_keywords:",
+        "    - internship",
+        "sources:",
+        "  enabled:",
+        *[f"    - {source}" for source in target_sources],
+        "digest:",
+        "  recipient_email: integration@example.com",
+        "  min_relevance_score: 60",
+    ]
+    config_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def test_graph_integration_with_mocked_agents_and_scrapers(
     monkeypatch, tmp_path: Path, temp_db: str
 ) -> None:
@@ -30,35 +68,14 @@ def test_graph_integration_with_mocked_agents_and_scrapers(
     profile_path.write_text("Python SQL LangChain profile", encoding="utf-8")
 
     config_path = tmp_path / "job_search.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "profile_id: integration-user",
-                "profile_markdown_path: candidate.md",
-                "recipient_email: integration@example.com",
-                "target_locations:",
-                "  - Paris",
-                "remote_policy: flexible",
-                "target_titles:",
-                "  - Data Engineer",
-                "contract_types:",
-                "  - full_time",
-                "seniority: senior",
-                "required_keywords:",
-                "  - python",
-                "  - sql",
-                "bonus_keywords:",
-                "  - langchain",
-                "excluded_keywords:",
-                "  - internship",
-                "target_sources:",
-                "  - wttj",
-                "  - greenhouse",
-                "  - lever",
-                "min_relevance_score: 60",
-            ]
-        ),
-        encoding="utf-8",
+    write_job_search_config(
+        config_path,
+        target_locations=["Paris"],
+        target_titles=["Data Engineer"],
+        seniority="senior",
+        required_keywords=["python", "sql"],
+        bonus_keywords=["langchain"],
+        target_sources=["wttj", "greenhouse", "lever"],
     )
 
     fake_profile = CandidateProfile(
@@ -168,33 +185,14 @@ def test_graph_does_not_mark_sent_when_email_fails(
     profile_path.write_text("Python SQL LangChain profile", encoding="utf-8")
 
     config_path = tmp_path / "job_search.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "profile_id: integration-user",
-                "profile_markdown_path: candidate.md",
-                "recipient_email: integration@example.com",
-                "target_locations:",
-                "  - Paris",
-                "remote_policy: flexible",
-                "target_titles:",
-                "  - Data Engineer",
-                "contract_types:",
-                "  - full_time",
-                "seniority: senior",
-                "required_keywords:",
-                "  - python",
-                "  - sql",
-                "bonus_keywords:",
-                "  - langchain",
-                "excluded_keywords:",
-                "  - internship",
-                "target_sources:",
-                "  - wttj",
-                "min_relevance_score: 60",
-            ]
-        ),
-        encoding="utf-8",
+    write_job_search_config(
+        config_path,
+        target_locations=["Paris"],
+        target_titles=["Data Engineer"],
+        seniority="senior",
+        required_keywords=["python", "sql"],
+        bonus_keywords=["langchain"],
+        target_sources=["wttj"],
     )
 
     fake_profile = CandidateProfile(
@@ -284,34 +282,14 @@ def test_graph_digest_includes_all_offers_above_min_score(
     profile_path.write_text("Python FastAPI RAG profile", encoding="utf-8")
 
     config_path = tmp_path / "job_search.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "profile_id: integration-user",
-                "profile_markdown_path: candidate.md",
-                "recipient_email: integration@example.com",
-                "target_locations:",
-                "  - Remote France",
-                "remote_policy: flexible",
-                "target_titles:",
-                "  - AI Engineer",
-                "contract_types:",
-                "  - full_time",
-                "seniority: mid",
-                "required_keywords:",
-                "  - python",
-                "  - fastapi",
-                "bonus_keywords:",
-                "  - rag",
-                "excluded_keywords:",
-                "  - internship",
-                "target_sources:",
-                "  - wttj",
-                "  - lever",
-                "min_relevance_score: 60",
-            ]
-        ),
-        encoding="utf-8",
+    write_job_search_config(
+        config_path,
+        target_locations=["Remote France"],
+        target_titles=["AI Engineer"],
+        seniority="mid",
+        required_keywords=["python", "fastapi"],
+        bonus_keywords=["rag"],
+        target_sources=["wttj", "lever"],
     )
 
     fake_profile = CandidateProfile(
@@ -417,33 +395,14 @@ def test_graph_keeps_offers_new_when_email_is_not_delivered_live(
     profile_path.write_text("Python SQL LangChain profile", encoding="utf-8")
 
     config_path = tmp_path / "job_search.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "profile_id: integration-user",
-                "profile_markdown_path: candidate.md",
-                "recipient_email: integration@example.com",
-                "target_locations:",
-                "  - Paris",
-                "remote_policy: flexible",
-                "target_titles:",
-                "  - Data Engineer",
-                "contract_types:",
-                "  - full_time",
-                "seniority: senior",
-                "required_keywords:",
-                "  - python",
-                "  - sql",
-                "bonus_keywords:",
-                "  - langchain",
-                "excluded_keywords:",
-                "  - internship",
-                "target_sources:",
-                "  - wttj",
-                "min_relevance_score: 60",
-            ]
-        ),
-        encoding="utf-8",
+    write_job_search_config(
+        config_path,
+        target_locations=["Paris"],
+        target_titles=["Data Engineer"],
+        seniority="senior",
+        required_keywords=["python", "sql"],
+        bonus_keywords=["langchain"],
+        target_sources=["wttj"],
     )
 
     fake_profile = CandidateProfile(

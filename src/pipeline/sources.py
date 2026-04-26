@@ -130,10 +130,10 @@ def fetch_wttj_jobs(
         payload = {
             "requests": [
                 {
-                    "indexName": f"{WTTJ_ALGOLIA_INDEX_PREFIX}_{job_config.wttj_locale}",
+                    "indexName": f"{WTTJ_ALGOLIA_INDEX_PREFIX}_{job_config.sources.wttj.locale}",
                     "params": (
                         f"query={intent.query}"
-                        f"&hitsPerPage={job_config.wttj_hits_per_page}"
+                        f"&hitsPerPage={job_config.sources.wttj.hits_per_page}"
                         "&page=0"
                     ),
                 }
@@ -157,7 +157,7 @@ def fetch_wttj_jobs(
             )
             response.raise_for_status()
             hits = response.json().get("results", [{}])[0].get("hits", [])
-            parsed_offers = parse_wttj_hits(hits, job_config.wttj_locale, intent)
+            parsed_offers = parse_wttj_hits(hits, job_config.sources.wttj.locale, intent)
             logger.info(
                 "WTTJ query completed: query=%s hits=%s parsed_offers=%s",
                 intent.query,
@@ -221,21 +221,22 @@ def fetch_greenhouse_jobs(
     search_intents: list[SearchIntent],
 ) -> list[NormalizedJobOffer]:
     intents = filter_intents_for_source(search_intents, "greenhouse")
-    if not intents or not job_config.greenhouse_board_tokens:
+    board_tokens = job_config.sources.greenhouse.board_tokens
+    if not intents or not board_tokens:
         logger.info(
             "Greenhouse scraper skipped: intents=%s board_tokens=%s",
             len(intents),
-            len(job_config.greenhouse_board_tokens),
+            len(board_tokens),
         )
         return []
 
     logger.info(
         "Greenhouse scraper running: intents=%s board_tokens=%s",
         len(intents),
-        len(job_config.greenhouse_board_tokens),
+        len(board_tokens),
     )
     offers: list[NormalizedJobOffer] = []
-    for board_token in job_config.greenhouse_board_tokens:
+    for board_token in board_tokens:
         logger.info("Greenhouse board fetch started: %s", board_token)
         try:
             response = requests.get(
@@ -310,7 +311,10 @@ def fetch_lever_jobs(
     company_tokens = sorted(
         {
             token.strip().lower()
-            for token in [*job_config.lever_company_tokens, *get_active_company_tokens("lever")]
+            for token in [
+                *job_config.sources.lever.company_tokens,
+                *get_active_company_tokens("lever"),
+            ]
             if token.strip()
         }
     )

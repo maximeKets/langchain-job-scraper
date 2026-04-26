@@ -148,15 +148,25 @@ def discover_lever_companies(queries: list[str]) -> list[str]:
             logger.warning("Lever discovery Serper query failed for '%s': %s", query, error)
             continue
 
+        query_tokens: list[str] = []
         for url in urls:
             token = extract_lever_company_token(url)
-            if not token or token in discovered_by_token:
+            if not token:
+                continue
+            query_tokens.append(token)
+            if token in discovered_by_token:
                 continue
             discovered_by_token[token] = DiscoveredLeverCompany(
                 token=token,
                 discovery_query=query,
                 discovery_url=url,
             )
+        logger.info(
+            "Lever discovery query completed: links=%s valid_lever_tokens=%s new_tokens=%s",
+            len(urls),
+            len(set(query_tokens)),
+            len(discovered_by_token),
+        )
 
     persisted_tokens: list[str] = []
     validated_at = datetime.now(UTC).replace(tzinfo=None)
@@ -175,6 +185,12 @@ def discover_lever_companies(queries: list[str]) -> list[str]:
             logger.info("Lever discovery ignored inactive company: %s", discovered.token)
             continue
 
+        logger.info(
+            "Lever discovery validated active company: token=%s jobs=%s last_seen_job_at=%s",
+            discovered.token,
+            validation.job_count,
+            validation.last_seen_job_at,
+        )
         upsert_company_source(
             source="lever",
             token=discovered.token,

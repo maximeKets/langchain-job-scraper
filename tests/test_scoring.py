@@ -12,17 +12,18 @@ def build_job_config() -> JobSearchConfig:
     return JobSearchConfig(
         profile_id="score-test",
         profile_markdown_path="../profiles/candidate_profile.md",
-        recipient_email="test@example.com",
-        target_locations=["Paris", "Remote France"],
-        remote_policy="flexible",
-        target_titles=["Data Engineer", "AI Engineer"],
-        contract_types=["full_time"],
-        seniority="senior",
-        required_keywords=["python", "sql", "langchain"],
-        bonus_keywords=["langgraph", "rag"],
-        excluded_keywords=["internship", "stage"],
-        target_sources=["wttj"],
-        min_relevance_score=65,
+        search={
+            "target_locations": ["Paris", "Remote France"],
+            "remote_policy": "flexible",
+            "target_titles": ["Data Engineer", "AI Engineer"],
+            "contract_types": ["full_time"],
+            "seniority": "senior",
+            "required_keywords": ["python", "sql", "langchain"],
+            "bonus_keywords": ["langgraph", "rag"],
+            "excluded_keywords": ["internship", "stage"],
+        },
+        sources={"enabled": ["wttj"]},
+        digest={"recipient_email": "test@example.com", "min_relevance_score": 65},
     )
 
 

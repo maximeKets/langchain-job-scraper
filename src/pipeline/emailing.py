@@ -58,9 +58,22 @@ def render_digest_email(
 
 
 def send_digest_email(recipient_email: str, subject: str, html_body: str) -> bool:
+    logger.info(
+        "Email delivery preflight: mode=%s smtp_host=%s smtp_port=%s smtp_user=%s password_configured=%s",
+        settings.EMAIL_DELIVERY_MODE,
+        settings.SMTP_HOST,
+        settings.SMTP_PORT,
+        settings.SMTP_USER,
+        bool(settings.SMTP_PASSWORD),
+    )
     if settings.EMAIL_DELIVERY_MODE != "live" or not settings.SMTP_PASSWORD:
         logger.info(
-            "Email simulation mode: recipient=%s subject=%s body_chars=%s",
+            "Email not sent live: reason=%s recipient=%s subject=%s body_chars=%s",
+            (
+                "delivery_mode_not_live"
+                if settings.EMAIL_DELIVERY_MODE != "live"
+                else "smtp_password_missing"
+            ),
             recipient_email,
             subject,
             len(html_body),
@@ -82,8 +95,13 @@ def send_digest_email(recipient_email: str, subject: str, html_body: str) -> boo
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        logger.info("SMTP connection opened: host=%s port=%s", settings.SMTP_HOST, settings.SMTP_PORT)
+        logger.info("SMTP starting TLS")
         server.starttls()
+        logger.info("SMTP TLS started; logging in as %s", settings.SMTP_USER)
         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        logger.info("SMTP login succeeded; sending message")
         server.sendmail(settings.SMTP_USER, recipient_email, msg.as_string())
+        logger.info("SMTP sendmail completed")
     logger.info("Live email sent: recipient=%s subject=%s", recipient_email, subject)
     return True

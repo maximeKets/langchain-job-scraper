@@ -9,12 +9,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PIPELINE_CONFIG_PATH = PROJECT_ROOT / "config/job_search.yaml"
 
 
-class JobSearchConfig(BaseModel):
-    model_config = ConfigDict(extra="ignore")
+class CandidateSearchPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-    profile_id: str
-    profile_markdown_path: str
-    recipient_email: str
     target_locations: list[str] = Field(default_factory=list)
     remote_policy: str = "flexible"
     target_titles: list[str] = Field(default_factory=list)
@@ -23,14 +20,53 @@ class JobSearchConfig(BaseModel):
     required_keywords: list[str] = Field(default_factory=list)
     bonus_keywords: list[str] = Field(default_factory=list)
     excluded_keywords: list[str] = Field(default_factory=list)
-    target_sources: list[str] = Field(
+
+
+class WttjSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hits_per_page: int = 20
+    locale: str = "fr"
+
+
+class GreenhouseSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    board_tokens: list[str] = Field(default_factory=list)
+
+
+class LeverSourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    company_tokens: list[str] = Field(default_factory=list)
+
+
+class SourceConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: list[str] = Field(
         default_factory=lambda: ["wttj", "greenhouse", "lever"]
     )
+    wttj: WttjSourceConfig = Field(default_factory=WttjSourceConfig)
+    greenhouse: GreenhouseSourceConfig = Field(default_factory=GreenhouseSourceConfig)
+    lever: LeverSourceConfig = Field(default_factory=LeverSourceConfig)
+
+
+class DigestConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recipient_email: str
     min_relevance_score: int = 65
-    greenhouse_board_tokens: list[str] = Field(default_factory=list)
-    lever_company_tokens: list[str] = Field(default_factory=list)
-    wttj_hits_per_page: int = 20
-    wttj_locale: str = "fr"
+
+
+class JobSearchConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str
+    profile_markdown_path: str
+    search: CandidateSearchPreferences = Field(default_factory=CandidateSearchPreferences)
+    sources: SourceConfig = Field(default_factory=SourceConfig)
+    digest: DigestConfig
 
 
 class LoadedJobSearchConfig(BaseModel):

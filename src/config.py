@@ -26,7 +26,7 @@ def resolve_database_url(value: str) -> str:
 
 
 class Config:
-    MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o")
+    MODEL_NAME = os.getenv("MODEL_NAME", "gpt-5-nano-2025-08-07")
 
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
