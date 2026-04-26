@@ -1,0 +1,57 @@
+profile_id: maxime-data-ai
+profile_markdown_path: ../profiles/candidate_profile.md
+recipient_email: maximekets80@gmail.com
+target_locations:
+  - Montpellier
+  - Remote France
+  - Remote Europe
+remote_policy: flexible
+target_titles:
+  - Développeur IA
+  - AI Engineer
+  - Développeur RAG
+  - Full-Stack AI Developer
+  - Backend Python IA
+  - LLM Engineer
+  - Automation Developer
+  - Python Developer
+contract_types:
+  - full_time
+  - contract
+seniority: mid
+required_keywords:
+  - python
+  - fastapi
+  - rag
+  - llm
+  - ai
+  - automation
+bonus_keywords:
+  - embeddings
+  - pinecone
+  - chatbot
+  - assistant
+  - langchain
+  - mcp
+  - docker
+  - ci/cd
+excluded_keywords:
+  - internship
+  - stage
+  - alternance
+  - wordpress
+  - no-code
+  - nocode
+  - mobile
+  - ios
+  - android
+target_sources:
+  - wttj
+  - greenhouse
+  - lever
+min_relevance_score: 60
+daily_digest_top_n: 10
+greenhouse_board_tokens: []
+lever_company_tokens: []
+wttj_hits_per_page: 20
+wttj_locale: fr
