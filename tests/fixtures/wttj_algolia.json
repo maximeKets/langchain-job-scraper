@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "hits": [
+        {
+          "name": "Senior Data Engineer",
+          "slug": "senior-data-engineer_paris",
+          "reference": "wttj-123",
+          "summary": "Build robust data pipelines and ML-ready datasets.",
+          "key_missions": [
+            "Design Python and SQL pipelines",
+            "Collaborate with AI product teams"
+          ],
+          "remote": "hybrid",
+          "contract_type": "full_time",
+          "published_at": "2026-04-21T10:00:00Z",
+          "offices": [
+            {
+              "city": "Paris",
+              "state": "Ile-de-France",
+              "country": "France"
+            }
+          ],
+          "organization": {
+            "name": "Example WTTJ Company",
+            "slug": "example-wttj-company"
+          }
+        }
+      ]
+    }
+  ]
+}
