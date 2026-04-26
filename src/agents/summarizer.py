@@ -88,11 +88,19 @@ def send_summary_email(
         offer_ids_to_mark_sent: Database IDs of offers included in the email.
     """
     try:
-        send_digest_email(
+        delivered = send_digest_email(
             recipient_email=recipient_email,
             subject=subject,
             html_body=html_body,
         )
+        if not delivered:
+            logger.info(
+                "Summarizer email not delivered live; offers kept as new: recipient=%s offers=%s",
+                recipient_email,
+                len(offer_ids_to_mark_sent),
+            )
+            return "Email not delivered live; offers kept as new."
+
         mark_offers_as_sent(offer_ids_to_mark_sent)
         logger.info(
             "Summarizer email sent and offers marked sent: recipient=%s offers=%s",

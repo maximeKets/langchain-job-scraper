@@ -17,11 +17,13 @@ from src.db.operations import (
 from src.pipeline.config import DEFAULT_PIPELINE_CONFIG_PATH, JobSearchConfig, load_job_search_config
 from src.pipeline.emailing import render_digest_email, send_digest_email
 from src.pipeline.llm_agents import (
+    build_lever_discovery_queries_with_agent,
     build_digest_summary_with_agent,
     build_search_plan_with_agent,
     enrich_score_with_agent,
     parse_candidate_profile_with_agent,
 )
+from src.pipeline.lever_discovery import discover_lever_companies
 from src.pipeline.models import CandidateProfile, DigestEntry, NormalizedJobOffer, ScoredJobOffer, SearchIntent
 from src.pipeline.scoring import (
     build_fallback_relevance_reason,
@@ -39,6 +41,8 @@ class PipelineState(TypedDict, total=False):
     profile_markdown: str
     candidate_profile: CandidateProfile
     search_intents: list[SearchIntent]
+    lever_discovery_queries: list[str]
+    discovered_lever_company_tokens: list[str]
     source_jobs: Annotated[list[NormalizedJobOffer], operator.add]
     normalized_offers: list[NormalizedJobOffer]
     scored_offers: list[ScoredJobOffer]
@@ -93,6 +97,25 @@ def build_search_plan_agent(state: PipelineState) -> dict[str, Any]:
         by_source[intent.source] = by_source.get(intent.source, 0) + 1
     logger.info("Search plan built: intents=%s by_source=%s", len(search_intents), by_source)
     return {"search_intents": search_intents}
+
+
+def discover_lever_sources_agent(state: PipelineState) -> dict[str, Any]:
+    job_config = state["job_search_config"]
+    if "lever" not in job_config.target_sources:
+        logger.info("Lever source discovery skipped: lever is not enabled")
+        return {"lever_discovery_queries": [], "discovered_lever_company_tokens": []}
+
+    queries = build_lever_discovery_queries_with_agent(state["candidate_profile"], job_config)
+    discovered_tokens = discover_lever_companies(queries)
+    logger.info(
+        "Lever source discovery completed: queries=%s discovered_tokens=%s",
+        len(queries),
+        len(discovered_tokens),
+    )
+    return {
+        "lever_discovery_queries": queries,
+        "discovered_lever_company_tokens": discovered_tokens,
+    }
 
 
 def dispatch_scrapers(state: PipelineState) -> list[Send]:
@@ -264,11 +287,18 @@ def send_email(state: PipelineState) -> dict[str, Any]:
         state["job_search_config"].recipient_email,
         len(offer_ids),
     )
-    send_digest_email(
+    delivered = send_digest_email(
         recipient_email=state["job_search_config"].recipient_email,
         subject=state["digest_subject"],
         html_body=state["digest_html"],
     )
+    if not delivered:
+        logger.info("Email not delivered live; offers kept as new: offer_ids=%s", offer_ids)
+        return {
+            "sent_offer_ids": [],
+            "run_summary": "Email not delivered live; offers kept as new.",
+        }
+
     mark_offers_as_sent(offer_ids)
     logger.info("Digest email sent and offers marked as sent: offer_ids=%s", offer_ids)
     return {
@@ -285,6 +315,7 @@ def get_job_search_graph():
     builder.add_node("load_config", load_config)
     builder.add_node("parse_profile_agent", parse_profile_agent)
     builder.add_node("build_search_plan_agent", build_search_plan_agent)
+    builder.add_node("discover_lever_sources_agent", discover_lever_sources_agent)
     builder.add_node("wttj_scraper", wttj_scraper)
     builder.add_node("greenhouse_scraper", greenhouse_scraper)
     builder.add_node("lever_scraper", lever_scraper)
@@ -297,7 +328,8 @@ def get_job_search_graph():
     builder.add_edge(START, "load_config")
     builder.add_edge("load_config", "parse_profile_agent")
     builder.add_edge("parse_profile_agent", "build_search_plan_agent")
-    builder.add_conditional_edges("build_search_plan_agent", dispatch_scrapers)
+    builder.add_edge("build_search_plan_agent", "discover_lever_sources_agent")
+    builder.add_conditional_edges("discover_lever_sources_agent", dispatch_scrapers)
     builder.add_edge("wttj_scraper", "normalize_offers")
     builder.add_edge("greenhouse_scraper", "normalize_offers")
     builder.add_edge("lever_scraper", "normalize_offers")

@@ -11,6 +11,18 @@ from src.pipeline.llm_agents import DigestSummaryOutput
 from src.pipeline.models import CandidateProfile, DigestEntry, NormalizedJobOffer, SearchIntent
 
 
+@pytest.fixture(autouse=True)
+def disable_lever_discovery(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.pipeline.graph.build_lever_discovery_queries_with_agent",
+        lambda candidate_profile, job_config: [],
+    )
+    monkeypatch.setattr(
+        "src.pipeline.graph.discover_lever_companies",
+        lambda queries: [],
+    )
+
+
 def test_graph_integration_with_mocked_agents_and_scrapers(
     monkeypatch, tmp_path: Path, temp_db: str
 ) -> None:
@@ -44,7 +56,6 @@ def test_graph_integration_with_mocked_agents_and_scrapers(
                 "  - greenhouse",
                 "  - lever",
                 "min_relevance_score: 60",
-                "daily_digest_top_n: 5",
             ]
         ),
         encoding="utf-8",
@@ -129,8 +140,15 @@ def test_graph_integration_with_mocked_agents_and_scrapers(
     )
     monkeypatch.setattr(
         "src.pipeline.graph.send_digest_email",
-        lambda recipient_email, subject, html_body: sent_payload.update(
-            {"recipient_email": recipient_email, "subject": subject, "html_body": html_body}
+        lambda recipient_email, subject, html_body: (
+            sent_payload.update(
+                {
+                    "recipient_email": recipient_email,
+                    "subject": subject,
+                    "html_body": html_body,
+                }
+            )
+            or True
         ),
     )
 
@@ -174,7 +192,6 @@ def test_graph_does_not_mark_sent_when_email_fails(
                 "target_sources:",
                 "  - wttj",
                 "min_relevance_score: 60",
-                "daily_digest_top_n: 5",
             ]
         ),
         encoding="utf-8",
@@ -292,7 +309,6 @@ def test_graph_digest_includes_all_offers_above_min_score(
                 "  - wttj",
                 "  - lever",
                 "min_relevance_score: 60",
-                "daily_digest_top_n: 1",
             ]
         ),
         encoding="utf-8",
@@ -384,7 +400,7 @@ def test_graph_digest_includes_all_offers_above_min_score(
     )
     monkeypatch.setattr(
         "src.pipeline.graph.send_digest_email",
-        lambda recipient_email, subject, html_body: None,
+        lambda recipient_email, subject, html_body: True,
     )
 
     graph = get_job_search_graph()
@@ -392,3 +408,117 @@ def test_graph_digest_includes_all_offers_above_min_score(
 
     assert digest_counts["entries"] == 2
     assert len(result["sent_offer_ids"]) == 2
+
+
+def test_graph_keeps_offers_new_when_email_is_not_delivered_live(
+    monkeypatch, tmp_path: Path, temp_db: str
+) -> None:
+    profile_path = tmp_path / "candidate.md"
+    profile_path.write_text("Python SQL LangChain profile", encoding="utf-8")
+
+    config_path = tmp_path / "job_search.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "profile_id: integration-user",
+                "profile_markdown_path: candidate.md",
+                "recipient_email: integration@example.com",
+                "target_locations:",
+                "  - Paris",
+                "remote_policy: flexible",
+                "target_titles:",
+                "  - Data Engineer",
+                "contract_types:",
+                "  - full_time",
+                "seniority: senior",
+                "required_keywords:",
+                "  - python",
+                "  - sql",
+                "bonus_keywords:",
+                "  - langchain",
+                "excluded_keywords:",
+                "  - internship",
+                "target_sources:",
+                "  - wttj",
+                "min_relevance_score: 60",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    fake_profile = CandidateProfile(
+        profile_id="integration-user",
+        candidate_summary="Senior data engineer",
+        experience_summary="Python SQL LangChain experience",
+        target_titles=["Data Engineer"],
+        target_locations=["Paris"],
+        remote_policy="flexible",
+        contract_types=["full_time"],
+        seniority="senior",
+        required_keywords=["python", "sql"],
+        bonus_keywords=["langchain"],
+        excluded_keywords=["internship"],
+        core_skills=["python", "sql", "langchain"],
+        preferred_domains=["data", "ai"],
+        raw_markdown="Python SQL LangChain profile",
+    )
+    fake_offer = NormalizedJobOffer(
+        source="wttj",
+        source_id="integration-offer-not-live",
+        title="Senior Data Engineer",
+        company="Integration Co",
+        url="https://example.com/jobs/integration-offer-not-live",
+        canonical_url="https://example.com/jobs/integration-offer-not-live",
+        category="Data Engineer",
+        location="Paris, France",
+        remote_policy="hybrid",
+        employment_type="full_time",
+        description="Python SQL LangChain data platform role",
+        matched_queries=["Data Engineer Python SQL"],
+        source_payload={"fixture": True},
+    )
+
+    monkeypatch.setattr(
+        "src.pipeline.graph.parse_candidate_profile_with_agent",
+        lambda job_config, raw_markdown: fake_profile,
+    )
+    monkeypatch.setattr(
+        "src.pipeline.graph.build_search_plan_with_agent",
+        lambda candidate_profile, job_config: [
+            SearchIntent(
+                source="wttj",
+                title="Data Engineer",
+                query="Data Engineer Python SQL",
+                locations=["Paris"],
+                remote_policy="flexible",
+                contract_types=["full_time"],
+                required_keywords=["python", "sql"],
+                bonus_keywords=["langchain"],
+                excluded_keywords=["internship"],
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "src.pipeline.graph.fetch_wttj_jobs",
+        lambda job_config, search_intents: [fake_offer],
+    )
+    monkeypatch.setattr(
+        "src.pipeline.graph.build_digest_summary_with_agent",
+        lambda candidate_profile, digest_entries: DigestSummaryOutput(
+            subject="Integration digest",
+            intro="Here are the best matching roles.",
+            highlights=["Integration Co - Senior Data Engineer"],
+        ),
+    )
+    monkeypatch.setattr(
+        "src.pipeline.graph.send_digest_email",
+        lambda recipient_email, subject, html_body: False,
+    )
+
+    graph = get_job_search_graph()
+    result = graph.invoke({"config_path": str(config_path)})
+
+    pending = get_pending_digest_offers(60)
+    assert result["sent_offer_ids"] == []
+    assert result["run_summary"] == "Email not delivered live; offers kept as new."
+    assert [offer.status for offer in pending] == ["new"]

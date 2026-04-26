@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -37,3 +37,23 @@ class JobOffer(Base):
 
     def __repr__(self) -> str:
         return f"<JobOffer(title='{self.title}', company='{self.company}', status='{self.status}')>"
+
+
+class CompanySource(Base):
+    __tablename__ = "company_sources"
+    __table_args__ = (UniqueConstraint("source", "token", name="uq_company_source_token"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String(100), index=True)
+    token: Mapped[str] = mapped_column(String(255), index=True)
+    company_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    discovery_query: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discovery_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    last_validated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_seen_job_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_job_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow_naive)
+
+    def __repr__(self) -> str:
+        return f"<CompanySource(source='{self.source}', token='{self.token}', active={self.is_active})>"

@@ -5,6 +5,7 @@ from typing import Any
 
 import requests
 
+from src.db.operations import get_active_company_tokens
 from src.pipeline.config import JobSearchConfig
 from src.pipeline.models import NormalizedJobOffer, SearchIntent
 from src.pipeline.scoring import (
@@ -306,21 +307,28 @@ def fetch_lever_jobs(
     search_intents: list[SearchIntent],
 ) -> list[NormalizedJobOffer]:
     intents = filter_intents_for_source(search_intents, "lever")
-    if not intents or not job_config.lever_company_tokens:
+    company_tokens = sorted(
+        {
+            token.strip().lower()
+            for token in [*job_config.lever_company_tokens, *get_active_company_tokens("lever")]
+            if token.strip()
+        }
+    )
+    if not intents or not company_tokens:
         logger.info(
             "Lever scraper skipped: intents=%s company_tokens=%s",
             len(intents),
-            len(job_config.lever_company_tokens),
+            len(company_tokens),
         )
         return []
 
     logger.info(
         "Lever scraper running: intents=%s company_tokens=%s",
         len(intents),
-        len(job_config.lever_company_tokens),
+        len(company_tokens),
     )
     offers: list[NormalizedJobOffer] = []
-    for company_token in job_config.lever_company_tokens:
+    for company_token in company_tokens:
         logger.info("Lever company fetch started: %s", company_token)
         try:
             response = requests.get(

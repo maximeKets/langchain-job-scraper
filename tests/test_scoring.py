@@ -23,7 +23,6 @@ def build_job_config() -> JobSearchConfig:
         excluded_keywords=["internship", "stage"],
         target_sources=["wttj"],
         min_relevance_score=65,
-        daily_digest_top_n=10,
     )
 
 

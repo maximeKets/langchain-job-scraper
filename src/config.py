@@ -52,6 +52,11 @@ class Config:
     SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
     SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
     EMAIL_DELIVERY_MODE = os.getenv("EMAIL_DELIVERY_MODE", "mock").lower()
+
+    # Configuration Serper.dev pour la découverte automatique de sources.
+    SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
+    SERPER_SEARCH_URL = os.getenv("SERPER_SEARCH_URL", "https://google.serper.dev/search")
+    SERPER_RESULTS_PER_QUERY = int(os.getenv("SERPER_RESULTS_PER_QUERY", "10"))
     
     # Email destinataire par défaut
     RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL", "maximekets80@gmail.com")

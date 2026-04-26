@@ -27,7 +27,6 @@ class JobSearchConfig(BaseModel):
         default_factory=lambda: ["wttj", "greenhouse", "lever"]
     )
     min_relevance_score: int = 65
-    daily_digest_top_n: int = 10
     greenhouse_board_tokens: list[str] = Field(default_factory=list)
     lever_company_tokens: list[str] = Field(default_factory=list)
     wttj_hits_per_page: int = 20

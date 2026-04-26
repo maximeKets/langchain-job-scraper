@@ -45,7 +45,7 @@ def test_send_summary_email_marks_offers_sent_after_success(monkeypatch, temp_db
     monkeypatch.setattr(
         summarizer,
         "send_digest_email",
-        lambda recipient_email, subject, html_body: None,
+        lambda recipient_email, subject, html_body: True,
     )
 
     result = summarizer.send_summary_email.invoke(
@@ -59,6 +59,29 @@ def test_send_summary_email_marks_offers_sent_after_success(monkeypatch, temp_db
 
     assert "Email sent successfully" in result
     assert get_pending_digest_offers(60) == []
+
+
+def test_send_summary_email_keeps_offers_new_when_not_delivered_live(
+    monkeypatch, temp_db: str
+) -> None:
+    offer = upsert_scored_job_offer(make_offer("send-mock", 80))
+    monkeypatch.setattr(
+        summarizer,
+        "send_digest_email",
+        lambda recipient_email, subject, html_body: False,
+    )
+
+    result = summarizer.send_summary_email.invoke(
+        {
+            "recipient_email": "test@example.com",
+            "subject": "Digest",
+            "html_body": "<p>Hello</p>",
+            "offer_ids_to_mark_sent": [offer.id],
+        }
+    )
+
+    assert "Email not delivered live" in result
+    assert [pending.id for pending in get_pending_digest_offers(60)] == [offer.id]
 
 
 def test_send_summary_email_does_not_mark_sent_after_failure(monkeypatch, temp_db: str) -> None:

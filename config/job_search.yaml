@@ -50,7 +50,6 @@ target_sources:
   - greenhouse
   - lever
 min_relevance_score: 60
-daily_digest_top_n: 10
 greenhouse_board_tokens: []
 lever_company_tokens: []
 wttj_hits_per_page: 20

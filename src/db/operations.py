@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from src.config import resolve_database_url, settings
-from src.db.models import Base, JobOffer
+from src.db.models import Base, CompanySource, JobOffer
 from src.pipeline.scoring import canonicalize_job_url
 
 DB_PATH = settings.DB_PATH
@@ -205,3 +205,64 @@ def mark_offers_as_sent(offer_ids: List[int]) -> None:
         )
         session.execute(stmt)
         session.commit()
+
+
+def upsert_company_source(
+    *,
+    source: str,
+    token: str,
+    company_name: str | None,
+    discovery_query: str | None,
+    discovery_url: str | None,
+    is_active: bool,
+    last_validated_at: datetime | None,
+    last_seen_job_at: datetime | None,
+    last_job_count: int,
+) -> CompanySource:
+    normalized_source = source.strip().lower()
+    normalized_token = token.strip().lower()
+
+    with SessionLocal() as session:
+        stmt = select(CompanySource).where(
+            CompanySource.source == normalized_source,
+            CompanySource.token == normalized_token,
+        )
+        existing = session.execute(stmt).scalar_one_or_none()
+        if existing:
+            existing.company_name = company_name or existing.company_name
+            existing.discovery_query = discovery_query or existing.discovery_query
+            existing.discovery_url = discovery_url or existing.discovery_url
+            existing.is_active = is_active
+            existing.last_validated_at = last_validated_at
+            existing.last_seen_job_at = last_seen_job_at
+            existing.last_job_count = last_job_count
+            session.commit()
+            session.refresh(existing)
+            return existing
+
+        company_source = CompanySource(
+            source=normalized_source,
+            token=normalized_token,
+            company_name=company_name,
+            discovery_query=discovery_query,
+            discovery_url=discovery_url,
+            is_active=is_active,
+            last_validated_at=last_validated_at,
+            last_seen_job_at=last_seen_job_at,
+            last_job_count=last_job_count,
+        )
+        session.add(company_source)
+        session.commit()
+        session.refresh(company_source)
+        return company_source
+
+
+def get_active_company_tokens(source: str) -> List[str]:
+    with SessionLocal() as session:
+        stmt = (
+            select(CompanySource.token)
+            .where(CompanySource.source == source.strip().lower())
+            .where(CompanySource.is_active.is_(True))
+            .order_by(CompanySource.last_seen_job_at.desc(), CompanySource.token.asc())
+        )
+        return list(session.scalars(stmt).all())

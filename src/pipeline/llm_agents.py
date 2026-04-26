@@ -19,6 +19,10 @@ class SearchPlanEnvelope(BaseModel):
     search_intents: list[SearchIntent] = Field(default_factory=list)
 
 
+class LeverDiscoveryQueryEnvelope(BaseModel):
+    queries: list[str] = Field(default_factory=list)
+
+
 class RelevanceExplanation(BaseModel):
     relevance_reason: str
     strengths: list[str] = Field(default_factory=list)
@@ -64,6 +68,21 @@ def get_search_plan_agent():
             "using short high-signal queries."
         ),
         response_format=SearchPlanEnvelope,
+    )
+
+
+@lru_cache(maxsize=1)
+def get_lever_discovery_query_agent():
+    return create_agent(
+        model=build_chat_model(temperature=0.2),
+        tools=[],
+        system_prompt=(
+            "You create Google search queries for discovering public Lever job board URLs. "
+            "Return only high-signal queries that include site:jobs.lever.co and combine target titles, "
+            "required skills, bonus skills, remote/location preferences, and AI/backend/data context. "
+            "Do not invent company slugs; generate search queries only."
+        ),
+        response_format=LeverDiscoveryQueryEnvelope,
     )
 
 
@@ -235,6 +254,87 @@ def build_search_plan_with_agent(
         logger.warning("Search plan agent returned no search intents; using fallback")
     except Exception:
         logger.exception("Search plan agent failed; using fallback")
+    return fallback
+
+
+def _dedupe_queries(queries: list[str], limit: int = 30) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        normalized = " ".join(query.split()).strip()
+        if not normalized:
+            continue
+        if "site:jobs.lever.co" not in normalized:
+            normalized = f"site:jobs.lever.co {normalized}"
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(normalized)
+        if len(deduped) >= limit:
+            break
+    return deduped
+
+
+def fallback_build_lever_discovery_queries(
+    candidate_profile: CandidateProfile,
+    job_config: JobSearchConfig,
+) -> list[str]:
+    titles = candidate_profile.target_titles or job_config.target_titles or ["AI Engineer"]
+    required_keywords = (candidate_profile.required_keywords or job_config.required_keywords)[:3]
+    bonus_keywords = (candidate_profile.bonus_keywords or job_config.bonus_keywords)[:4]
+    locations = candidate_profile.target_locations or job_config.target_locations
+
+    context_terms = [
+        " ".join(required_keywords),
+        " ".join(bonus_keywords[:2]),
+        "Remote" if candidate_profile.remote_policy != "onsite" else "",
+        locations[0] if locations else "",
+    ]
+    queries: list[str] = []
+    for title in titles:
+        query_parts = ["site:jobs.lever.co", f'"{title}"']
+        query_parts.extend(f'"{term}"' for term in context_terms if term)
+        queries.append(" ".join(query_parts))
+
+        skill_terms = [term for term in required_keywords + bonus_keywords if term][:4]
+        if skill_terms:
+            queries.append(
+                " ".join(["site:jobs.lever.co", f'"{title}"', *[f'"{term}"' for term in skill_terms]])
+            )
+
+    return _dedupe_queries(queries)
+
+
+def build_lever_discovery_queries_with_agent(
+    candidate_profile: CandidateProfile,
+    job_config: JobSearchConfig,
+) -> list[str]:
+    fallback = fallback_build_lever_discovery_queries(candidate_profile, job_config)
+    if not can_use_llm():
+        logger.info("OpenAI API key/model not configured; using fallback Lever discovery queries")
+        return fallback
+
+    prompt = (
+        "Candidate profile:\n"
+        f"{candidate_profile.model_dump_json(indent=2)}\n\n"
+        "Job search config:\n"
+        f"{json.dumps(job_config.model_dump(), ensure_ascii=True, indent=2)}\n\n"
+        "Generate 12-20 Google queries to discover relevant Lever company boards."
+    )
+    try:
+        logger.info("Invoking LangChain Lever discovery query agent")
+        result = get_lever_discovery_query_agent().invoke(
+            {"messages": [{"role": "user", "content": prompt}]}
+        )
+        structured = result.get("structured_response")
+        if isinstance(structured, LeverDiscoveryQueryEnvelope) and structured.queries:
+            queries = _dedupe_queries(structured.queries)
+            logger.info("Lever discovery query agent returned queries=%s", len(queries))
+            return queries
+        logger.warning("Lever discovery query agent returned no queries; using fallback")
+    except Exception:
+        logger.exception("Lever discovery query agent failed; using fallback")
     return fallback
 
 

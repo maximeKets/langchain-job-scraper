@@ -57,7 +57,7 @@ def render_digest_email(
     """.strip()
 
 
-def send_digest_email(recipient_email: str, subject: str, html_body: str) -> None:
+def send_digest_email(recipient_email: str, subject: str, html_body: str) -> bool:
     if settings.EMAIL_DELIVERY_MODE != "live" or not settings.SMTP_PASSWORD:
         logger.info(
             "Email simulation mode: recipient=%s subject=%s body_chars=%s",
@@ -66,7 +66,7 @@ def send_digest_email(recipient_email: str, subject: str, html_body: str) -> Non
             len(html_body),
         )
         logger.debug("Simulated email body:\n%s", html_body)
-        return
+        return False
 
     logger.info(
         "Sending live email: smtp_host=%s smtp_port=%s recipient=%s subject=%s",
@@ -86,3 +86,4 @@ def send_digest_email(recipient_email: str, subject: str, html_body: str) -> Non
         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
         server.sendmail(settings.SMTP_USER, recipient_email, msg.as_string())
     logger.info("Live email sent: recipient=%s subject=%s", recipient_email, subject)
+    return True

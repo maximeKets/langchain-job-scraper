@@ -22,7 +22,6 @@ def test_fallback_profile_parser_handles_noisy_markdown() -> None:
         excluded_keywords=["internship", "stage"],
         target_sources=["wttj", "greenhouse", "lever"],
         min_relevance_score=65,
-        daily_digest_top_n=10,
     )
 
     profile = fallback_parse_candidate_profile(job_config, markdown)
