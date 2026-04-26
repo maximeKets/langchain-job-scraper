@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 import requests
 
@@ -131,10 +132,12 @@ def fetch_wttj_jobs(
             "requests": [
                 {
                     "indexName": f"{WTTJ_ALGOLIA_INDEX_PREFIX}_{job_config.sources.wttj.locale}",
-                    "params": (
-                        f"query={intent.query}"
-                        f"&hitsPerPage={job_config.sources.wttj.hits_per_page}"
-                        "&page=0"
+                    "params": urlencode(
+                        {
+                            "query": intent.query,
+                            "hitsPerPage": job_config.sources.wttj.hits_per_page,
+                            "page": 0,
+                        }
                     ),
                 }
             ]

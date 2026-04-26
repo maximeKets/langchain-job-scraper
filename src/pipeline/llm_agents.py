@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from functools import lru_cache
 
 from langchain.agents import create_agent
@@ -38,14 +39,25 @@ class DigestSummaryOutput(BaseModel):
 
 MAX_LEVER_DISCOVERY_QUERIES = 12
 MAX_LEVER_DISCOVERY_TERMS = 4
+WTTJ_QUERY_EXTRA_TERMS = 1
+WTTJ_PRIORITY_QUERY_TERMS = (
+    "python",
+    "fastapi",
+    "rag",
+    "llm",
+    "ai",
+    "ia",
+    "automation",
+    "langchain",
+)
 
 
-def can_use_llm() -> bool:
-    return bool(settings.OPENAI_API_KEY and settings.MODEL_NAME)
+def can_use_llm(model_name: str | None = None) -> bool:
+    return bool(settings.OPENAI_API_KEY and (model_name or settings.MODEL_NAME))
 
 
-def build_chat_model(temperature: float = 0.0) -> ChatOpenAI:
-    return ChatOpenAI(model=settings.MODEL_NAME, temperature=temperature)
+def build_chat_model(temperature: float = 0.0, model_name: str | None = None) -> ChatOpenAI:
+    return ChatOpenAI(model=model_name or settings.MODEL_NAME, temperature=temperature)
 
 
 @lru_cache(maxsize=1)
@@ -65,12 +77,16 @@ def get_profile_parser_agent():
 @lru_cache(maxsize=1)
 def get_search_plan_agent():
     return create_agent(
-        model=build_chat_model(),
+        model=build_chat_model(model_name=settings.MODEL_NAME_AUGMENTED),
         tools=[],
         system_prompt=(
             "You build a concise source-specific search plan for job scraping. "
             "Create relevant SearchIntent items for each enabled source, one per target title, "
-            "using short high-signal queries."
+            "using short high-signal queries. "
+            "For Welcome to the Jungle / WTTJ, the query is sent directly to Algolia without "
+            "structured filters. Keep WTTJ queries broad: use the target title plus at most one "
+            "high-signal skill, and do not include location, remote policy, contract type, "
+            "seniority, exclusions, or long keyword lists. Local scoring will handle filtering."
         ),
         response_format=SearchPlanEnvelope,
     )
@@ -228,12 +244,111 @@ def fallback_build_search_plan(
     return search_intents
 
 
+def _fold_search_text(value: str) -> str:
+    normalized = unicodedata.normalize("NFKD", value.casefold())
+    ascii_text = "".join(char for char in normalized if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", ascii_text).strip()
+
+
+def _has_query_term(text: str, term: str) -> bool:
+    normalized_text = f" {_fold_search_text(text)} "
+    normalized_term = f" {_fold_search_text(term)} "
+    return normalized_term in normalized_text
+
+
+def _clean_search_query(query: str) -> str:
+    return re.sub(r"\s+", " ", query).strip()
+
+
+def _wttj_extra_terms(intent: SearchIntent, candidate_profile: CandidateProfile) -> list[str]:
+    title_has_priority_term = any(
+        _has_query_term(intent.title, term)
+        for term in [*WTTJ_PRIORITY_QUERY_TERMS, *candidate_profile.required_keywords]
+    )
+    if title_has_priority_term:
+        return []
+
+    profile_terms = candidate_profile.required_keywords + candidate_profile.bonus_keywords
+    profile_term_lookup = {_fold_search_text(term): term for term in profile_terms}
+    priority_terms = [
+        profile_term_lookup.get(_fold_search_text(term), term)
+        for term in WTTJ_PRIORITY_QUERY_TERMS
+        if _fold_search_text(term) in profile_term_lookup or _has_query_term(intent.query, term)
+    ]
+    candidates = [*priority_terms, *profile_terms]
+
+    extras: list[str] = []
+    seen: set[str] = set()
+    for term in candidates:
+        normalized = _fold_search_text(term)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        if _has_query_term(intent.title, term):
+            continue
+        extras.append(term)
+        if len(extras) >= WTTJ_QUERY_EXTRA_TERMS:
+            break
+    return extras
+
+
+def _complete_search_intent(
+    intent: SearchIntent,
+    candidate_profile: CandidateProfile,
+) -> SearchIntent:
+    updates = {
+        "locations": intent.locations or candidate_profile.target_locations,
+        "remote_policy": candidate_profile.remote_policy or intent.remote_policy,
+        "contract_types": intent.contract_types or candidate_profile.contract_types,
+        "required_keywords": intent.required_keywords or candidate_profile.required_keywords,
+        "bonus_keywords": intent.bonus_keywords or candidate_profile.bonus_keywords,
+        "excluded_keywords": intent.excluded_keywords or candidate_profile.excluded_keywords,
+    }
+    return intent.model_copy(update=updates)
+
+
+def _normalize_wttj_intent(
+    intent: SearchIntent,
+    candidate_profile: CandidateProfile,
+) -> SearchIntent:
+    title = _clean_search_query(intent.title or intent.query)
+    query_parts = [title, *_wttj_extra_terms(intent, candidate_profile)]
+    query = _clean_search_query(" ".join(part for part in query_parts if part))
+    return intent.model_copy(update={"query": query or _clean_search_query(intent.query)})
+
+
+def normalize_search_intents(
+    intents: list[SearchIntent],
+    candidate_profile: CandidateProfile,
+) -> list[SearchIntent]:
+    normalized_intents: list[SearchIntent] = []
+    seen: set[tuple[str, str, str]] = set()
+    for intent in intents:
+        completed = _complete_search_intent(intent, candidate_profile)
+        if completed.source == "wttj":
+            completed = _normalize_wttj_intent(completed, candidate_profile)
+
+        key = (
+            completed.source.casefold(),
+            completed.title.casefold(),
+            completed.query.casefold(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_intents.append(completed)
+    return normalized_intents
+
+
 def build_search_plan_with_agent(
     candidate_profile: CandidateProfile,
     job_config: JobSearchConfig,
 ) -> list[SearchIntent]:
-    fallback = fallback_build_search_plan(candidate_profile, job_config)
-    if not can_use_llm():
+    fallback = normalize_search_intents(
+        fallback_build_search_plan(candidate_profile, job_config),
+        candidate_profile,
+    )
+    if not can_use_llm(settings.MODEL_NAME_AUGMENTED):
         logger.info("OpenAI API key/model not configured; using fallback search plan")
         return fallback
 
@@ -255,8 +370,9 @@ def build_search_plan_with_agent(
                 for intent in structured.search_intents
                 if intent.source in job_config.sources.enabled
             ]
-            logger.info("Search plan agent returned intents=%s", len(intents))
-            return intents
+            normalized_intents = normalize_search_intents(intents, candidate_profile)
+            logger.info("Search plan agent returned intents=%s", len(normalized_intents))
+            return normalized_intents
         logger.warning("Search plan agent returned no search intents; using fallback")
     except Exception:
         logger.exception("Search plan agent failed; using fallback")
