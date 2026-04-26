@@ -5,3 +5,4 @@ logs/*.log.*
 skills-lock.json
 .agents
 sqlite.db
+.idea
